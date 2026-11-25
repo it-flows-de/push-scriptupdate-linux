@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 REQUIRED_CONFIG_VERSION="1"
 
 # Resolve symlinks: the script may be started via a link in PATH, but the config
@@ -41,6 +41,7 @@ EXIT_GIT=7
 DRY_RUN=0
 TARGET_SCRIPT=""
 TARGET_NAME=""
+REPO_NAME=""
 CUSTOMER_PATTERNS=()
 BACKUP_DIR=""
 ORIG_MODE=""
@@ -449,16 +450,43 @@ select_branch() {
     fi
 }
 
+# Return 0 if $1 is a valid repo name for this script: the script name itself or
+# the script name plus a suffix (e.g. get-scriptupdate-linux). This keeps the
+# release from going to a repo that belongs to another script.
+repo_name_ok() {
+    local name="$1"
+    [[ "${name}" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+    [[ "${name}" == "${TARGET_NAME}" || "${name}" == "${TARGET_NAME}-"* ]]
+}
+
+# Print the repo name taken from the URL of 'origin', using REMOTE_URL_TEMPLATE
+# (the part before and after %s must match). Return 1 if origin does not fit.
+repo_name_from_origin() {
+    local origin marker='%s' prefix suffix name
+    origin="$(git remote get-url origin 2>/dev/null)" || return 1
+    prefix="${REMOTE_URL_TEMPLATE%%"${marker}"*}"
+    suffix="${REMOTE_URL_TEMPLATE#*"${marker}"}"
+    [[ "${origin}" == "${prefix}"*"${suffix}" ]] || return 1
+    name="${origin#"${prefix}"}"
+    name="${name%"${suffix}"}"
+    [[ -n "${name}" ]] || return 1
+    printf '%s' "${name}"
+}
+
 # New repository: start with v1.0.0
 flow_new() {
     local url web cur refs
     in_repo && die "${EXIT_CHECK}" "There is already a Git repo here. Please choose 'existing repo'."
+    read -r -p "Repo name [${TARGET_NAME}]: " REPO_NAME
+    REPO_NAME="${REPO_NAME:-${TARGET_NAME}}"
+    repo_name_ok "${REPO_NAME}" \
+        || die "${EXIT_USAGE}" "Invalid repo name '${REPO_NAME}'. Expected ${TARGET_NAME} or ${TARGET_NAME}-<suffix> (letters, digits, . _ -)."
     # shellcheck disable=SC2059
-    url="$(printf "${REMOTE_URL_TEMPLATE}" "${TARGET_NAME}")"
-    web="https://github.com/${GITHUB_ORG}/${TARGET_NAME}"
+    url="$(printf "${REMOTE_URL_TEMPLATE}" "${REPO_NAME}")"
+    web="https://github.com/${GITHUB_ORG}/${REPO_NAME}"
     cur="$(get_var "${TARGET_SCRIPT}" VERSION)"
 
-    step "Plan: new repo ${TARGET_NAME}"
+    step "Plan: new repo ${REPO_NAME}"
     info "Remote:  ${url}"
     info "Version: 1.0.0 (tag v1.0.0), the script says ${cur}"
     if [[ ${DRY_RUN} -eq 1 ]]; then
@@ -497,10 +525,10 @@ flow_existing() {
     in_repo || die "${EXIT_CHECK}" "There is no Git repo here. Please choose 'new repo'."
     top="$(git rev-parse --show-toplevel)"
     [[ "${top}" == "$(pwd -P)" ]] || die "${EXIT_CHECK}" "Please run this in the top directory of the repo (${top})."
-    # shellcheck disable=SC2059
-    url="$(printf "${REMOTE_URL_TEMPLATE}" "${TARGET_NAME}")"
-    [[ "$(git remote get-url origin 2>/dev/null || true)" == "${url}" ]] \
-        || die "${EXIT_CHECK}" "Remote 'origin' is not ${url}."
+    REPO_NAME="$(repo_name_from_origin)" \
+        || die "${EXIT_CHECK}" "Remote 'origin' ($(git remote get-url origin 2>/dev/null || echo 'not set')) does not match REMOTE_URL_TEMPLATE."
+    repo_name_ok "${REPO_NAME}" \
+        || die "${EXIT_CHECK}" "Remote 'origin' points to repo '${REPO_NAME}', which does not fit the script '${TARGET_NAME}' (expected ${TARGET_NAME} or ${TARGET_NAME}-<suffix>)."
     git fetch -q origin --tags || die "${EXIT_GIT}" "git fetch failed."
     select_branch
     [[ "$(git rev-list --count "HEAD..origin/${BRANCH}")" -eq 0 ]] \
@@ -518,7 +546,7 @@ flow_existing() {
         die "${EXIT_CHECK}" "No changes since ${last_tag}."
     fi
 
-    step "Plan: ${TARGET_NAME}, branch ${BRANCH}, last tag ${last_tag}"
+    step "Plan: ${TARGET_NAME}, repo ${REPO_NAME}, branch ${BRANCH}, last tag ${last_tag}"
     echo "Which level?"
     echo "  [1] Patch  (bug fix)"
     echo "  [2] Minor  (new feature, config unchanged)"
@@ -596,6 +624,8 @@ source "${CONFIG_FILE}"
 [[ -n "${GITHUB_ORG:-}" ]] || die "${EXIT_CONFIG}" "GITHUB_ORG is not set in ${CONFIG_FILE}."
 : "${DEFAULT_BRANCH:?DEFAULT_BRANCH is missing in the config}"
 : "${REMOTE_URL_TEMPLATE:?REMOTE_URL_TEMPLATE is missing in the config}"
+[[ "${REMOTE_URL_TEMPLATE}" == *"%s"* ]] \
+    || die "${EXIT_CONFIG}" "REMOTE_URL_TEMPLATE in ${CONFIG_FILE} must contain %s (the repo name)."
 : "${MIN_GIT_VERSION:?MIN_GIT_VERSION is missing in the config}"
 COMMIT_MAIL_DOMAIN="${COMMIT_MAIL_DOMAIN:-}"
 

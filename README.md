@@ -8,8 +8,8 @@ creates a signed Git tag, verifies the signature and pushes the tag.
 
 Run it in the working copy of the script you want to release and choose:
 
-- **New repo:** after you created the empty public repo on GitHub, the script runs `git init`, commits, pushes and creates the tag `v1.0.0`.
-- **Existing repo:** you choose the level (patch, minor, major). The script raises `VERSION` (and `CONFIG_VERSION` on a major release), commits, pushes the branch and creates the next tag.
+- **New repo:** the script asks for the repo name (Enter takes the script name; a suffix such as `-linux` is allowed). After you created the empty public repo on GitHub, it runs `git init`, commits, pushes and creates the tag `v1.0.0`.
+- **Existing repo:** the repo name is taken from `origin` and must be the script name or the script name plus a suffix. You choose the level (patch, minor, major). The script raises `VERSION` (and `CONFIG_VERSION` on a major release), commits, pushes the branch and creates the next tag.
 
 Before anything is changed it checks, among other things:
 
@@ -45,7 +45,7 @@ documents every parameter. The config is never committed to Git.
 | `GITHUB_ORG`          | required | GitHub organisation that holds the script repos                 | `it-flows-de`                         |
 | `CUSTOMER_PATTERNS`   | optional | Words that must never appear in the repo, empty = check skipped | empty                                 |
 | `DEFAULT_BRANCH`      | default  | Branch for new repos and the expected branch                    | `main`                                |
-| `REMOTE_URL_TEMPLATE` | default  | SSH remote, `%s` is the script name                             | `git@github.com:${GITHUB_ORG}/%s.git` |
+| `REMOTE_URL_TEMPLATE` | default  | SSH remote, `%s` is the repo name (script name, optional suffix) | `git@github.com:${GITHUB_ORG}/%s.git` |
 | `MIN_GIT_VERSION`     | default  | Minimum Git version                                             | `2.34`                                |
 | `COMMIT_MAIL_DOMAIN`  | default  | Required domain of the commit mail, empty = check skipped       | `users.noreply.github.com`            |
 
